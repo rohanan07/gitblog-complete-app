@@ -44,3 +44,5 @@ temp/
 
 *.swp
 *.swo
+
+secret.yaml

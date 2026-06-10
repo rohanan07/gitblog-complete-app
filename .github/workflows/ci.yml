@@ -1,0 +1,101 @@
+name: Build and Deploy
+
+on:
+  push:
+    branches:
+      - main
+
+env:
+  AWS_REGION: ap-south-1
+  ECR_FRONTEND_REPOSITORY: gitblog-frontend
+  ECR_BACKEND_REPOSITORY: gitblog-backend
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Application Repository
+        uses: actions/checkout@v4
+
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ secrets.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Set Image Tag
+        run: |
+          echo "IMAGE_TAG=${GITHUB_SHA::7}" >> $GITHUB_ENV
+
+      # Backend
+
+      - name: Build Backend Image
+        run: |
+          docker build -t $ECR_BACKEND_REPOSITORY:$IMAGE_TAG ./backend
+
+      - name: Tag Backend Image
+        run: |
+          docker tag \
+          $ECR_BACKEND_REPOSITORY:$IMAGE_TAG \
+          ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.$AWS_REGION.amazonaws.com/$ECR_BACKEND_REPOSITORY:$IMAGE_TAG
+
+      - name: Push Backend Image
+        run: |
+          docker push \
+          ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.$AWS_REGION.amazonaws.com/$ECR_BACKEND_REPOSITORY:$IMAGE_TAG
+
+      # Frontend
+
+      - name: Build Frontend Image
+        run: |
+          docker build -t $ECR_FRONTEND_REPOSITORY:$IMAGE_TAG ./frontend
+
+      - name: Tag Frontend Image
+        run: |
+          docker tag \
+          $ECR_FRONTEND_REPOSITORY:$IMAGE_TAG \
+          ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.$AWS_REGION.amazonaws.com/$ECR_FRONTEND_REPOSITORY:$IMAGE_TAG
+
+      - name: Push Frontend Image
+        run: |
+          docker push \
+          ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.$AWS_REGION.amazonaws.com/$ECR_FRONTEND_REPOSITORY:$IMAGE_TAG
+
+      # Clone GitOps Repo
+
+      - name: Clone GitOps Repository
+        run: |
+          git clone https://x-access-token:${{ secrets.GITOPS_TOKEN }}@github.com/rohanan07/Gitblog-Gitops-Repo.git
+
+      # Install yq
+
+      - name: Install yq
+        run: |
+          sudo wget https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64 -O /usr/local/bin/yq
+          sudo chmod +x /usr/local/bin/yq
+
+      # Update Image Tag
+
+      - name: Update GitOps Repository
+        run: |
+          yq -i '.image.tag = env(IMAGE_TAG)' Gitblog-Gitops-Repo/helm/gitblog/values.yaml
+
+      # Commit Changes
+
+      - name: Commit and Push Changes
+        run: |
+          cd Gitblog-Gitops-Repo
+
+          git config user.name "github-actions"
+          git config user.email "github-actions@github.com"
+
+          git add .
+
+          git commit -m "Update image tag to $IMAGE_TAG" || echo "No changes"
+
+          git push
