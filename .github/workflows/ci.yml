@@ -53,7 +53,7 @@ jobs:
 
       - name: Build Frontend Image
         run: |
-          docker build -t $ECR_FRONTEND_REPOSITORY:$IMAGE_TAG ./frontend
+          docker build --build-arg VITE_API_URL=/api -t $ECR_FRONTEND_REPOSITORY:$IMAGE_TAG ./frontend
 
       - name: Tag Frontend Image
         run: |
